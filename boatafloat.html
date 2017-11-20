@@ -1,0 +1,47 @@
+<html>
+<head>
+	<link rel="stylesheet" href="stylesheet.css">
+	<script type="text/javascript" src="spark.min.js"></script>
+	<script type="text/javascript">
+
+	// This the dynamic content of the web page
+	// It is comprised of javascript code
+
+	// After a successful login, this checks for your devices and makes them available to this webpage
+	spark.on('login', function() {
+		spark.listDevices(function(err, devices) {
+			console.log(devices[0].name);
+		});
+	});
+
+	// everytime the button on the page is pressed this function is called and asks your device for the 'analog' variable from your firmware code: Particle.variable("analog", analogSensor);
+	function photon_variable() {
+		spark.devices[0].getVariable('accelX', function(err, data) {
+			if (err) {
+				console.log('An error occurred while getting attrs:', err);
+			} else {
+				console.log('Device attr retrieved successfully:', data);
+				// this takes returned data and pulls the name and result values from the JSON formated 'key: "value"' pairs you can see in the console log of your browser
+				document.getElementById("variable").innerHTML = "SENSOR: " + data.name;
+				document.getElementById("reading").innerHTML = "READING: " + data.result;
+			}
+		});
+	}
+
+	// Input your Particle.io credentials here
+	spark.login({ username: '3165783@student.ocadu.ca', password: 'L32FUu'});
+
+	</script>
+</head>
+
+<body>
+	<div class="wrapper">
+		<br>
+		<fieldset>
+			<h2 id="variable">SENSOR: waiting...</h2>
+			<h2 id="reading">READING: ---</h2>
+			<input type="button" onClick="photon_variable()" value="check"/>
+		</fieldset>
+	</div>
+</body>
+</html>
