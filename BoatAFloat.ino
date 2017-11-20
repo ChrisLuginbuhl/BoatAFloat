@@ -18,15 +18,20 @@ Adafruit_LSM9DS0 lsm = Adafruit_LSM9DS0();\
 // Or hardware SPI! In this case, only CS pins are passed in\
 //Adafruit_LSM9DS0 lsm = Adafruit_LSM9DS0(10, 9);\
 \
-long sumX = 0;\
-long sumY = 0;\
-long sumZ = 0;\
-int avgX = 0;\
-int avgY = 0;\
-int avgZ = 0;\
+long accelSumX = 0;\
+long accelSumY = 0;\
+long accelSumZ = 0;\
+int accelAvgX = 0;\
+int accelAvgY = 0;\
+int accelAvgZ = 0;\
 int numAvgs = 5000;\
 \
-\
+int magSumX = 0;\
+int magSumY = 0;\
+int magSumZ = 0;\
+int magAvgX = 0;\
+int magAvgY = 0;\
+int magAvgZ = 0;\
 \
 void setupSensor()\
 \{\
@@ -74,25 +79,45 @@ void loop() \
 \{\
   lsm.read();\
   for (int i = 0; i < numAvgs; i++) \{\
-      sumX += (int)lsm.accelData.x;\
-      sumY += (int)lsm.accelData.y;\
-      sumZ += (int)lsm.accelData.z;\
+      accelSumX += (int)lsm.accelData.x;\
+      accelSumY += (int)lsm.accelData.y;\
+      accelSumZ += (int)lsm.accelData.z;\
+      magSumX += (int)lsm.magData.x;\
+      magSumY += (int)lsm.magData.y; \
+      magSumZ += (int)lsm.magData.z;\
       //delay(1);\
   \}\
-  avgX = sumX / (10*numAvgs);\
-  avgY = sumY / (10*numAvgs);\
-  avgZ = sumZ / (10*numAvgs);\
+  accelAvgX = accelSumX / (100*numAvgs);  //100 here reduces the noise further by chopping off the last two digits of the number\
+  accelAvgY = accelSumY / (100*numAvgs);\
+  accelAvgZ = accelSumZ / (100*numAvgs);\
   \
-  sumX=0;\
-  sumY=0;\
-  sumZ=0;\
-      \
+  magAvgX = magSumX / (10 * numAvgs);\
+  magAvgY = magSumY / (10 * numAvgs);\
+  magAvgZ = magSumZ / (10 * numAvgs);\
+  \
+  \
+  accelSumX=0;\
+  accelSumY=0;\
+  accelSumZ=0;\
+  \
+  magSumX = 0;\
+  magSumY = 0;\
+  magSumZ = 0;\
+\
   Serial.print("Accel X: "); \
-  Serial.print(avgX);\
+  Serial.print(accelAvgX);\
   Serial.print("    Accel Y: "); \
-  Serial.print(avgY);\
+  Serial.print(accelAvgY);\
   Serial.print("    Accel Z: "); \
-  Serial.println(avgZ);\
+  Serial.print(accelAvgZ);\
+  Serial.print("    Mag X: "); \
+  Serial.print(magAvgX);\
+  Serial.print("    Mag Y: "); \
+  Serial.print(magAvgY);\
+  Serial.print("    Mag Z: "); \
+  Serial.print(magAvgZ);\
+  Serial.print("   Temp: ");\
+  Serial.println(lsm.temperature);\
   delay(1000);\
 \
 /*\
