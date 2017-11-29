@@ -5,8 +5,7 @@
 \margl1440\margr1440\vieww10800\viewh8400\viewkind0
 \pard\tx566\tx1133\tx1700\tx2267\tx2834\tx3401\tx3968\tx4535\tx5102\tx5669\tx6236\tx6803\pardirnatural\partightenfactor0
 
-\f0\fs24 \cf0 //#include <Wire.h>\
-//#include <SPI.h>\
+\f0\fs24 \cf0 \
 #include <Adafruit_LSM9DS0.h>\
 #include <Adafruit_Sensor.h>  // not used in this demo but required!\
 \
@@ -17,14 +16,17 @@ Adafruit_LSM9DS0 lsm = Adafruit_LSM9DS0();\
 //Adafruit_LSM9DS0 lsm = Adafruit_LSM9DS0(13, 12, 11, 10, 9);\
 // Or hardware SPI! In this case, only CS pins are passed in\
 //Adafruit_LSM9DS0 lsm = Adafruit_LSM9DS0(10, 9);\
+const int numAvgs = 5000;\
+const int NUM_CALIBRATION_READS = 50000;\
+//const int arraySize = 1000;\
 \
-long accelSumX = 0;\
-long accelSumY = 0;\
-long accelSumZ = 0;\
+int accelSumX = 0;\
+int accelSumY = 0;\
+int accelSumZ = 0;\
 int accelAvgX = 0;\
 int accelAvgY = 0;\
 int accelAvgZ = 0;\
-int numAvgs = 5000;\
+\
 \
 int magSumX = 0;\
 int magSumY = 0;\
@@ -32,6 +34,16 @@ int magSumZ = 0;\
 int magAvgX = 0;\
 int magAvgY = 0;\
 int magAvgZ = 0;\
+\
+int initialMagX = 0;\
+int initialMagY = 0;\
+int initialMagZ = 0;\
+\
+int pitchAngle = 0;\
+int readTime = 0;\
+\
+// long j= 0;\
+// int accelArrayX[arraySize];\
 \
 void setupSensor()\
 \{\
@@ -73,10 +85,34 @@ void setup() \
   Serial.println("Found LSM9DS0 9DOF");\
   Serial.println("");\
   Serial.println("");\
+  delay(500); //let lsm readings stabilize;\
+  \
+  //get the initial state of the lsm sensors\
+  lsm.read();\
+  for (int i = 0; i < NUM_CALIBRATION_READS; i++) \{\
+      magSumX += (int)lsm.magData.x;\
+      magSumY += (int)lsm.magData.y; \
+      magSumZ += (int)lsm.magData.z;\
+  \}\
+  \
+  initialMagX = magSumX / NUM_CALIBRATION_READS;\
+  initialMagY = magSumY / NUM_CALIBRATION_READS;\
+  initialMagZ = magSumZ / NUM_CALIBRATION_READS;\
+\
+//   Particle.variable("pitch", pitchAngle);   //use Particle.variable() if we want the website to request the data each time. Use .publish() if we want to broadcast\
+    \
 \}\
 \
 void loop() \
 \{\
+  accelSumX=0;\
+  accelSumY=0;\
+  accelSumZ=0;\
+  \
+  magSumX = 0;\
+  magSumY = 0;\
+  magSumZ = 0;\
+  \
   lsm.read();\
   for (int i = 0; i < numAvgs; i++) \{\
       accelSumX += (int)lsm.accelData.x;\
@@ -87,38 +123,57 @@ void loop() \
       magSumZ += (int)lsm.magData.z;\
       //delay(1);\
   \}\
+  \
+  \
+  //   avg -= avg/N;\
+  //   avg += input/N;\
   accelAvgX = accelSumX / (100*numAvgs);  //100 here reduces the noise further by chopping off the last two digits of the number\
   accelAvgY = accelSumY / (100*numAvgs);\
   accelAvgZ = accelSumZ / (100*numAvgs);\
   \
-  magAvgX = magSumX / (10 * numAvgs);\
-  magAvgY = magSumY / (10 * numAvgs);\
-  magAvgZ = magSumZ / (10 * numAvgs);\
+  magAvgX = magSumX / numAvgs - initialMagX;\
+  magAvgY = magSumY / numAvgs - initialMagY;\
+  magAvgZ = magSumZ / numAvgs - initialMagZ;\
   \
+  pitchAngle = magAvgX;\
+  readTime = millis();\
+  Particle.publish("Pitch", "test", 1);\
+  readTime = millis() - readTime;\
+  delay(5000);\
   \
-  accelSumX=0;\
-  accelSumY=0;\
-  accelSumZ=0;\
-  \
-  magSumX = 0;\
-  magSumY = 0;\
-  magSumZ = 0;\
-\
-  Serial.print("Accel X: "); \
+  Serial.print("ReadTime: "); \
+  Serial.print(readTime);\
+  Serial.print("  Initial Mag X: "); \
+  Serial.print(initialMagX);\
+  Serial.print("  magAvgX: "); \
+  Serial.print(magAvgX);\
+  Serial.print("  Pitch Angle: "); \
+  Serial.print(pitchAngle);\
+  Serial.print("  Accel X: "); \
   Serial.print(accelAvgX);\
   Serial.print("    Accel Y: "); \
   Serial.print(accelAvgY);\
   Serial.print("    Accel Z: "); \
   Serial.print(accelAvgZ);\
   Serial.print("    Mag X: "); \
-  Serial.print(magAvgX);\
+  Serial.print(magAvgX / 100);  //100 here reduces the apparent noise further by chopping off the last two digits of the number\
   Serial.print("    Mag Y: "); \
-  Serial.print(magAvgY);\
+  Serial.print(magAvgY / 100);\
   Serial.print("    Mag Z: "); \
-  Serial.print(magAvgZ);\
+  Serial.print(magAvgZ / 100);\
   Serial.print("   Temp: ");\
   Serial.println(lsm.temperature);\
-  delay(1000);\
+  \
+ \
+  \
+//   accelArrayX[j++ % (arraySize -1)] = accelAvgX;\
+  \
+//   if (j++ % 1000 == 0) \{\
+//      Particle.publish("AccelX", (String)*std::max_element(std::begin(accelArrayX), std::end(accelArrayX));\
+//      Serial.println(*std::max_element(std::begin(accelArrayX), std::end(accelArrayX));\
+//   \}\
+\
+//   delay(1000);\
 \
 /*\
   Serial.print("Accel X: "); Serial.print((int)lsm.accelData.x); Serial.print(" ");\
