@@ -6,7 +6,7 @@
 
 
 
-int refreshRate = 41710;
+long refreshRate = 41710;
 long lastRefresh = 0;
 
 // i2c
@@ -42,10 +42,11 @@ void setupSensor()
 
 void setup()
 {
+delay(5000);
 #ifndef ESP8266
   while (!Serial);     // will pause Zero, Leonardo, etc until serial console opens
 #endif
-  Serial.begin(9600);
+  Serial.begin(19200);
   Serial.println("LSM raw read demo");
 
   // Try to initialise and warn if we couldn't detect the chip
@@ -59,7 +60,8 @@ void setup()
   Serial.println("");
   Serial.println("****************************");
 
-  Serial.print("currentTime"); Serial.print(", ");
+  Serial.print("DataSet"); Serial.print(", ");
+  Serial.print("currentMicros"); Serial.print(", ");
   Serial.print("currentFrame"); Serial.print(", ");
   Serial.print("(int)lsm.accelData.x"); Serial.print(", ");
   Serial.print("(int)lsm.accelData.y"); Serial.print(", ");
@@ -80,10 +82,27 @@ void loop()
   lsm.read();
   currentTime = micros();
   currentFrame = currentTime/41710;
-
-if (currentFrame - lastRefresh >= refreshRate)
-{
+  
+  Serial.print("A"); Serial.print(", ");
   Serial.print(currentTime); Serial.print(", ");
+  Serial.print(currentFrame); Serial.print(", ");
+  Serial.print((int)lsm.accelData.x); Serial.print(", ");
+  Serial.print((int)lsm.accelData.y); Serial.print(", ");
+  Serial.print((int)lsm.accelData.z); Serial.print(", ");
+  Serial.print((int)lsm.magData.x); Serial.print(", ");
+  Serial.print((int)lsm.magData.y); Serial.print(", ");
+  Serial.print((int)lsm.magData.z); Serial.print(", ");
+  Serial.print((int)lsm.gyroData.x); Serial.print(", ");
+  Serial.print((int)lsm.gyroData.y); Serial.print(", ");
+  Serial.print((int)lsm.gyroData.z); Serial.print(", ");
+  Serial.println((int)lsm.temperature);
+
+
+
+if (currentTime - lastRefresh >= refreshRate)
+{
+    Serial.print("B"); Serial.print(", ");
+    Serial.print(currentTime); Serial.print(", ");
   Serial.print(currentFrame); Serial.print(", ");
   Serial.print((int)lsm.accelData.x); Serial.print(", ");
   Serial.print((int)lsm.accelData.y); Serial.print(", ");
