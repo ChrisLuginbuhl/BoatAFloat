@@ -1,3 +1,5 @@
+#include "ServoEaser.h"
+
 #include <Adafruit_LSM9DS0.h>
 #include <math.h>
 
@@ -11,6 +13,7 @@ const int NUM_CALIBRATION_READS = 5000;
 const int PUBLISH_INTERVAL = 2000; //milliseconds. Make sure this is long enough to capture at least one cycle of waves.
 //const int arraySize = 1000;
 long lastPublish = 0;
+int servoFrameMillis = 20;
 
 int accelSumX = 0;
 int accelSumY = 0;
@@ -46,12 +49,17 @@ double maxRoll = 0;
 double minPitch = 0;
 double maxPitch = 0;
 
+int amplitude = 0;
+bool amplitudeToggle = FALSE;
+
 Servo servoOne;   //create Servo object. LIbrary is included in particle firmware by default.
+ServoEaser servoEaser;
+
 
 void setupSensor()
 {
   // 1.) Set the accelerometer range
-  lsm.setupAccel(lsm.LSM9DS0_ACCELRANGE_2G);
+  lsm.setupAccel(lsm.LSM9DS0_ACCELRANGE_2G); 
 
   // 2.) Set the magnetometer sensitivity
   lsm.setupMag(lsm.LSM9DS0_MAGGAIN_2GAUSS);
@@ -78,32 +86,31 @@ void setup()
   Serial.println("");
   Serial.println("");
   delay(500); //let lsm readings stabilize;
+    
+  servoOne.attach(D2);   
+  servoEaser.begin(servoOne, servoFrameMillis);     
+/*
+  //get the initial state of the lsm sensors
+  lsm.read();
+  //necessary to calibrate magnetometer data to be able to separate static from changing dynamic fields.
+  for (int i = 0; i < NUM_CALIBRATION_READS; i++) {
+    magSumX += (int)lsm.magData.x;
+    magSumY += (int)lsm.magData.y;
+    magSumZ += (int)lsm.magData.z;
+  }
 
-  servoOne.attach(D2);
-  servoOne.write(90);  // We try to leave the servo and start the servo in the same position to prevent a "lurch" - a full speed move to zero from wherever it was left.
+  initialMagX = magSumX / NUM_CALIBRATION_READS;
+  initialMagY = magSumY / NUM_CALIBRATION_READS;
+  initialMagZ = magSumZ / NUM_CALIBRATION_READS;
 
-  /*
-    //get the initial state of the lsm sensors
-    lsm.read();
-    //necessary to calibrate magnetometer data to be able to separate static from changing dynamic fields.
-    for (int i = 0; i < NUM_CALIBRATION_READS; i++) {
-      magSumX += (int)lsm.magData.x;
-      magSumY += (int)lsm.magData.y;
-      magSumZ += (int)lsm.magData.z;
-    }
+  //   initialAccelX = accelSumX / NUM_CALIBRATION_READS;
+  //   initialAccelY = accelSumY / NUM_CALIBRATION_READS;
+  //   initialAccelZ = accelSumZ / NUM_CALIBRATION_READS;
 
-    initialMagX = magSumX / NUM_CALIBRATION_READS;
-    initialMagY = magSumY / NUM_CALIBRATION_READS;
-    initialMagZ = magSumZ / NUM_CALIBRATION_READS;
+  //   Particle.variable("pitch", pitchAngle);   //use Particle.variable() if we want the website to request the data each time. Use .publish() if we want to broadcast
+*/
 
-    //   initialAccelX = accelSumX / NUM_CALIBRATION_READS;
-    //   initialAccelY = accelSumY / NUM_CALIBRATION_READS;
-    //   initialAccelZ = accelSumZ / NUM_CALIBRATION_READS;
-
-    //   Particle.variable("pitch", pitchAngle);   //use Particle.variable() if we want the website to request the data each time. Use .publish() if we want to broadcast
-  */
-
-  Particle.subscribe("totalRoll", moveBoat);
+  Particle.subscribe("totalRoll", setShoreRollAmplitude);
 }
 
 void loop()
@@ -124,6 +131,8 @@ void loop()
     //   magSumY = 0;
     //   magSumZ = 0;
     getRollAndPitch();
+    
+    servoOne.writeMicroseconds(1500 + (int)(amplitude * sin(PI * millis()/PUBLISH_INTERVAL)));  // PI radians is one half revolution. Do this every PUBLISH_INTERVAL
 
     //check for maxima and minima.
     if (rollAngle > maxRoll) {
@@ -196,53 +205,80 @@ void getRollAndPitch() {
   //   magAvgY = magSumY / numAvgs - initialMagY;
   //   magAvgZ = magSumZ / numAvgs - initialMagZ;
 
-  rollAngle = 180 / PI * atan(accelAvgY / accelAvgZ); //don't need to prevent accelAvgZ from being 0 because it's a double.
+  rollAngle = 180 / PI * atan(accelAvgY / accelAvgZ);  //don't need to prevent accelAvgZ from being 0 because it's a double and will never be exactly zero.
   pitchAngle = 180 / PI * atan(accelAvgX / accelAvgZ); //accelAvgZ is mostly gravity unless the waves are giant & steep. Use the inverse tangent to determine how far we are from vertical.
-  //sudden knocks will appear as high pitch/roll angles.
+                                                       //sudden knocks will appear as high pitch/roll angles.
 }
 
 
-void moveBoat(const char *tRoll, const char *data)
+void setShoreRollAmplitude(const char *tRoll, const char *data)
 {
   int angle = 90;
-  int amplitude = 0;
   int roll = 0;
   String data1 = "";
-  std::string s = data;
 
-  Serial.print("Total Roll received: ");
+/* 
+  Serial.print("Total Roll received from Particle.io: ");
   if (data) {
     Serial.println(data);
   }
   else
     Serial.println("NULL");
-
-  int commaIndex = s.length();
-  for (int i = 0; i < commaIndex; i++) {
-    data1 = data1 + data[i];
+*/ 
+    
+//convert const char* to Int
+  std::string s = data;  
+  int strLength = s.length();
+  for(int i = 0; i < strLength; i++) {
+    data1 = data1 + data[i];    
   }
-
   roll = data1.toInt();
-
-
+  
+  //convert boat roll to shore side roll ("amplitude")
   if (roll < 2) {
-    amplitude = 25;
-    Serial.println("Sinwave 4");
+      amplitude = 25;
+ //     Serial.println("Sinwave 4");
   } else if (roll < 10) {
-    amplitude = 50;
-    Serial.println("Sinewave 8");
+      amplitude = 50;
+ //     Serial.println("Sinewave 8");
   } else if (roll < 30) {
-    amplitude = 75;
+      amplitude = 75;
   } else if (roll >= 30) {
-    amplitude = 120;
+      amplitude = 120;
   }
 
-  for (int i = 0; i < 360 * 10; i++) {
-    servoOne.writeMicroseconds(1500 + (int)(amplitude * sin(i * PI / 180))); //1500 microseconds corresponds to 90degress. The full motion range for 9g servos is usually 1000-2000us.
-    delay(PUBLISH_INTERVAL / 180);
-  }
 
-  servoOne.write(90);
+/*
+eased motion interleaving read/publish. 
+  if (amplitudeToggle == TRUE) {
+    servoEaser.easeTo(90+amplitude/4, PUBLISH_INTERVAL);
+  } else {
+    servoEaser.easeTo(90-amplitude/4, PUBLISH_INTERVAL);
+  }
+  amplitudeToggle = !amplitudeToggle;
+*/
 }
 
+
+/*
+//eased motion
+ for (int i = 0; i < 2000; i++) {
+  servoEaser.update();
+  delay(1);
+}  
+  servoEaser.easeTo(90-amplitude/4, 2000);
+  for (int i = 0; i < 2000; i++) {
+
+  servoEaser.update();
+  delay(1);
+}  
+*/
+
+/*
+//sinusoidal motion    
+    for (int i = 0; i < 360*10; i++) {
+     servoOne.writeMicroseconds(1500 + (int)(amplitude * sin(i*PI/180))); //1500 microseconds corresponds to 90degress. The full motion range for 9g servos is usually 1000-2000us. 
+     delay(PUBLISH_INTERVAL / 180);
+  }  
+*/
 
