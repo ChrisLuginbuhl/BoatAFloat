@@ -1,19 +1,15 @@
-#include "ServoEaser.h"
+
 
 #include <Adafruit_LSM9DS0.h>
 #include <math.h>
-
-#define PI 3.14159265
-
-Adafruit_LSM9DS0 lsm = Adafruit_LSM9DS0();
 
 const int servoPin = D2;
 const int numAvgs = 5000;
 const int NUM_CALIBRATION_READS = 5000;
 const int PUBLISH_INTERVAL = 2000; //milliseconds. Make sure this is long enough to capture at least one cycle of waves.
-//const int arraySize = 1000;
+const int smoothing = 12;
+
 long lastPublish = 0;
-int servoFrameMillis = 20;
 
 int accelSumX = 0;
 int accelSumY = 0;
@@ -27,21 +23,8 @@ int initialAccelX = 0;
 int initialAccelY = 0;
 int initialAccelZ = 0;
 
-int magSumX = 0;
-int magSumY = 0;
-int magSumZ = 0;
-
-int magAvgX = 0;
-int magAvgY = 0;
-int magAvgZ = 0;
-
-int initialMagX = 0;
-int initialMagY = 0;
-int initialMagZ = 0;
-
 double rollAngle = 0.0;
 double pitchAngle = 0.0;
-// float yawAngle = 0.0;
 double totalRoll = 0.0;
 
 double minRoll = 0;
@@ -50,29 +33,27 @@ double minPitch = 0;
 double maxPitch = 0;
 
 int amplitude = 0;
-bool amplitudeToggle = FALSE;
+int oldPosition = 0;
+int newPosition = 0;
+float smoothedPosition = 0.0;
+bool alarmSent = FALSE;
 
+Adafruit_LSM9DS0 lsm = Adafruit_LSM9DS0(); //create sensor object
 Servo servoOne;   //create Servo object. LIbrary is included in particle firmware by default.
-ServoEaser servoEaser;
-
 
 void setupSensor()
 {
-  // 1.) Set the accelerometer range
-  lsm.setupAccel(lsm.LSM9DS0_ACCELRANGE_2G); 
-
-  // 2.) Set the magnetometer sensitivity
+  //  Set the accelerometer range, magnetometer sensitivity and gyro scale.
+  lsm.setupAccel(lsm.LSM9DS0_ACCELRANGE_2G);
   lsm.setupMag(lsm.LSM9DS0_MAGGAIN_2GAUSS);
-
-  // 3.) Setup the gyroscope
   lsm.setupGyro(lsm.LSM9DS0_GYROSCALE_245DPS);
 }
 
 void setup()
 {
-#ifndef ESP8266
+  #ifndef ESP8266
   while (!Serial);     // will pause Zero, Leonardo, etc until serial console opens
-#endif
+  #endif
 
   Serial.begin(9600);
 
@@ -86,30 +67,10 @@ void setup()
   Serial.println("");
   Serial.println("");
   delay(500); //let lsm readings stabilize;
-    
-  servoOne.attach(D2);   
-  servoEaser.begin(servoOne, servoFrameMillis);     
-/*
-  //get the initial state of the lsm sensors
-  lsm.read();
-  //necessary to calibrate magnetometer data to be able to separate static from changing dynamic fields.
-  for (int i = 0; i < NUM_CALIBRATION_READS; i++) {
-    magSumX += (int)lsm.magData.x;
-    magSumY += (int)lsm.magData.y;
-    magSumZ += (int)lsm.magData.z;
-  }
 
-  initialMagX = magSumX / NUM_CALIBRATION_READS;
-  initialMagY = magSumY / NUM_CALIBRATION_READS;
-  initialMagZ = magSumZ / NUM_CALIBRATION_READS;
+  servoOne.attach(D2);
 
-  //   initialAccelX = accelSumX / NUM_CALIBRATION_READS;
-  //   initialAccelY = accelSumY / NUM_CALIBRATION_READS;
-  //   initialAccelZ = accelSumZ / NUM_CALIBRATION_READS;
-
-  //   Particle.variable("pitch", pitchAngle);   //use Particle.variable() if we want the website to request the data each time. Use .publish() if we want to broadcast
-*/
-
+  Particle.variable("totalRoll", int(totalRoll));   //We are publishing this for IFTTT and web
   Particle.subscribe("totalRoll", setShoreRollAmplitude);
 }
 
@@ -126,15 +87,29 @@ void loop()
     accelSumX = 0;
     accelSumY = 0;
     accelSumZ = 0;
-
-    //   magSumX = 0;
-    //   magSumY = 0;
-    //   magSumZ = 0;
     getRollAndPitch();
-    
-    servoOne.writeMicroseconds(1500 + (int)(amplitude * sin(PI * millis()/PUBLISH_INTERVAL)));  // PI radians is one half revolution. Do this every PUBLISH_INTERVAL
+    newPosition =  1500 + (int)(amplitude * sin(PI * millis()/PUBLISH_INTERVAL));  // 1500 microseconds is 90degrees. PI radians is one half revolution. Do a half cycle of a sine wave every PUBLISH_INTERVAL
+    smoothedPosition += (newPosition-smoothedPosition)/smoothing;                   //this makes a rolling average to smooth sudden moves.
 
-    //check for maxima and minima.
+    //if there is a sudden step in the roll angle, smooth the servo output. Otherwise, don't smooth the servo output.
+    if (abs(newPosition-oldPosition) > 3) {
+      servoOne.writeMicroseconds(smoothedPosition);
+      Serial.print("  smoothed: ");
+      Serial.print(smoothedPosition);
+      oldPosition = smoothedPosition;
+    } else {
+      servoOne.writeMicroseconds(newPosition);
+      Serial.print("  new position: ");
+      Serial.print(newPosition);
+      oldPosition = newPosition;
+    }
+
+    Serial.print("  total Roll: ");
+    Serial.print(totalRoll);
+    Serial.print("  amplitude: ");
+    Serial.println(amplitude);
+
+    //check for maxima and minima. These are what we will combine and publish
     if (rollAngle > maxRoll) {
       maxRoll = rollAngle;
     } else if (rollAngle < minRoll) {
@@ -146,139 +121,50 @@ void loop()
     } else if (pitchAngle < minPitch) {
       minPitch = pitchAngle;
     }
-  }
+  } //end while
   lastPublish = millis();
 
-  totalRoll = sqrt(pow((maxRoll - minRoll), 2) + pow((maxPitch - minPitch), 2)); //pythagoras's theorem. Used for finding the max angle from vertical using pitch and roll angles.
-  Particle.publish("totalRoll ", String(int(totalRoll)), 1);
-
-  delay(500); //from the Particle docs: "The built-in delay function safely interleaves required background activity, so arbitrarily long delays can safely be done if you need them."
-
-  Serial.print("Total roll: ");
-  Serial.print(totalRoll);
-  Serial.print("  Max roll: ");
-  Serial.print(maxRoll);
-  Serial.print("  Min roll: ");
-  Serial.print(minRoll);
-  Serial.print("  Max pitch: ");
-  Serial.print(maxPitch);
-  Serial.print("  Min pitch: ");
-  Serial.print(minPitch);
-
-  Serial.print("  Roll Angle: ");
-  Serial.print(int(rollAngle));
-  Serial.print("  Pitch Angle: ");
-  Serial.print(int(pitchAngle));
-  Serial.print("  Accel X: ");
-  Serial.print(accelAvgX);
-  Serial.print("    Accel Y: ");
-  Serial.print(accelAvgY);
-  Serial.print("    Accel Z: ");
-  Serial.println(accelAvgZ);
-  //   Serial.print("    Mag X: ");
-  //   Serial.print(magAvgX / 100);  //100 here reduces the apparent noise further by chopping off the last two digits of the number
-  //   Serial.print("    Mag Y: ");
-  //   Serial.print(magAvgY / 100);
-  //   Serial.print("    Mag Z: ");
-  //   Serial.print(magAvgZ / 100);
-  //   Serial.print("   Temp: ");
-  //   Serial.println(lsm.temperature);
-
+  totalRoll = sqrt(pow((maxRoll - minRoll), 2) + pow((maxPitch - minPitch), 2)) * 10; //pythagoras's theorem. Used for finding the max angle from vertical using pitch and roll angles. Multiplying by 10 so we can send it as an int and still have precision for small roll angles.
+  Particle.publish("totalRoll ", String(int(totalRoll)), 1);  //publish roll in tenths of a degree to avoid having to publish & later parse a float
+  if (totalRoll > 500 && alarmSent == FALSE) {
+    Particle.publish("alarm_status", "boat motion alarm");
+    alarmSent = TRUE;
+  }
 }
 
 void getRollAndPitch() {
   lsm.read();
+  // take many samples and average them to smooth out noise (e.g. sensor noise, electrical noise, and high frequency vibration from machinery etc)
   for (int i = 0; i < numAvgs; i++) {
     accelSumX += (int)lsm.accelData.x;
     accelSumY += (int)lsm.accelData.y;
     accelSumZ += (int)lsm.accelData.z;
-    //       magSumX += (int)lsm.magData.x;
-    //       magSumY += (int)lsm.magData.y;
-    //       magSumZ += (int)lsm.magData.z;
   }
 
   accelAvgX = accelSumX / numAvgs;      //no need for rolling averages because this operation is performed in 10ms
   accelAvgY = accelSumY / numAvgs;
   accelAvgZ = accelSumZ / numAvgs;
 
-  //   magAvgX = magSumX / numAvgs - initialMagX;
-  //   magAvgY = magSumY / numAvgs - initialMagY;
-  //   magAvgZ = magSumZ / numAvgs - initialMagZ;
-
   rollAngle = 180 / PI * atan(accelAvgY / accelAvgZ);  //don't need to prevent accelAvgZ from being 0 because it's a double and will never be exactly zero.
   pitchAngle = 180 / PI * atan(accelAvgX / accelAvgZ); //accelAvgZ is mostly gravity unless the waves are giant & steep. Use the inverse tangent to determine how far we are from vertical.
-                                                       //sudden knocks will appear as high pitch/roll angles.
+  //sudden knocks will appear as high pitch/roll angles.
 }
 
 
 void setShoreRollAmplitude(const char *tRoll, const char *data)
 {
-  int angle = 90;
   int roll = 0;
   String data1 = "";
 
-/* 
-  Serial.print("Total Roll received from Particle.io: ");
-  if (data) {
-    Serial.println(data);
-  }
-  else
-    Serial.println("NULL");
-*/ 
-    
-//convert const char* to Int
-  std::string s = data;  
+  //convert const char* to Int
+  std::string s = data;
   int strLength = s.length();
   for(int i = 0; i < strLength; i++) {
-    data1 = data1 + data[i];    
+    data1 = data1 + data[i];
   }
   roll = data1.toInt();
-  
+
   //convert boat roll to shore side roll ("amplitude")
-  if (roll < 2) {
-      amplitude = 25;
- //     Serial.println("Sinwave 4");
-  } else if (roll < 10) {
-      amplitude = 50;
- //     Serial.println("Sinewave 8");
-  } else if (roll < 30) {
-      amplitude = 75;
-  } else if (roll >= 30) {
-      amplitude = 120;
-  }
+  amplitude = round(pow(roll, 1./3.)*20) + 2;  //cubic scaling amplifies small roll angles and limits large ones
 
-
-/*
-eased motion interleaving read/publish. 
-  if (amplitudeToggle == TRUE) {
-    servoEaser.easeTo(90+amplitude/4, PUBLISH_INTERVAL);
-  } else {
-    servoEaser.easeTo(90-amplitude/4, PUBLISH_INTERVAL);
-  }
-  amplitudeToggle = !amplitudeToggle;
-*/
 }
-
-
-/*
-//eased motion
- for (int i = 0; i < 2000; i++) {
-  servoEaser.update();
-  delay(1);
-}  
-  servoEaser.easeTo(90-amplitude/4, 2000);
-  for (int i = 0; i < 2000; i++) {
-
-  servoEaser.update();
-  delay(1);
-}  
-*/
-
-/*
-//sinusoidal motion    
-    for (int i = 0; i < 360*10; i++) {
-     servoOne.writeMicroseconds(1500 + (int)(amplitude * sin(i*PI/180))); //1500 microseconds corresponds to 90degress. The full motion range for 9g servos is usually 1000-2000us. 
-     delay(PUBLISH_INTERVAL / 180);
-  }  
-*/
-
